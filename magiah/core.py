@@ -771,19 +771,21 @@ def locate(spec, cfg, out_dir):
     ''')
     con.executemany('INSERT OR REPLACE INTO errors VALUES(?,?,?,?,?,?)',
                     [(w, *v) for w, v in flagged.items()])
-    rows = []
-    for j, (w, uid, doc, prev, nxt, snip) in enumerate(all_occ):
-        fr = flagged[w]
-        hits = 0
-        if fr[1].startswith('edit1') or fr[1] == 'spelling_variant':
-            sugg = fr[2]
-            hits = (ctx_counts.get((prev, sugg), 0)
-                    + ctx_counts.get((sugg, nxt), 0))
-        local = local_counts.get((doc, fr[2]), 0) if fr[1] in LOCAL_TYPES else 0
-        tan, tsugg = tan_info[j] if tan_info else (0, '')
-        rows.append((w, uid, doc, hits, local,
-                     1 if w in repeat_words else 0, tan, tsugg, snip))
-    con.executemany('INSERT INTO occurrences VALUES(?,?,?,?,?,?,?,?,?)', rows)
+    def occurrence_rows():
+        """Yield rows without materializing a second occurrence list."""
+        for j, (w, uid, doc, prev, nxt, snip) in enumerate(all_occ):
+            fr = flagged[w]
+            hits = 0
+            if fr[1].startswith('edit1') or fr[1] == 'spelling_variant':
+                sugg = fr[2]
+                hits = (ctx_counts.get((prev, sugg), 0)
+                        + ctx_counts.get((sugg, nxt), 0))
+            local = local_counts.get((doc, fr[2]), 0) if fr[1] in LOCAL_TYPES else 0
+            tan, tsugg = tan_info[j] if tan_info else (0, '')
+            yield (w, uid, doc, hits, local,
+                   1 if w in repeat_words else 0, tan, tsugg, snip)
+    con.executemany('INSERT INTO occurrences VALUES(?,?,?,?,?,?,?,?,?)',
+                    occurrence_rows())
     # OCR-profile findings: word-level entry + occurrence rows
     for w, fw, sugg, fs, uid, doc, snip in all_ocr:
         if w not in flagged:
@@ -802,7 +804,7 @@ def locate(spec, cfg, out_dir):
     con.commit()
     corpus.enrich(con)
     con.close()
-    print(f'[locate] occurrences={len(rows):,}  space_errors={len(all_joins):,}'
+    print(f'[locate] occurrences={len(all_occ):,}  space_errors={len(all_joins):,}'
           f'  time={time.time()-t0:.0f}s -> {db_path}', flush=True)
 
 
